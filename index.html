@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Pulse Chat</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          base: '#0b0d12',
+          surface: '#13161c',
+          elevated: '#1b1f27',
+          edge: '#272b34',
+          accent: '#5b6cff',
+          accent2: '#22d3c5',
+          muted: '#8b909c'
+        },
+        fontFamily: {
+          display: ['Sora', 'sans-serif'],
+          sans: ['Inter', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'monospace']
+        }
+      }
+    }
+  };
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+  html, body { height: 100%; }
+  body { font-family: 'Inter', sans-serif; }
+  .font-display { font-family: 'Sora', sans-serif; }
+
+  /* dünner Scrollbar */
+  * { scrollbar-width: thin; scrollbar-color: #2f3440 transparent; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #2f3440; border-radius: 4px; }
+
+  @keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(8px) scale(.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .msg-bubble { animation: bubbleIn .22s ease-out; }
+
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .fade-in { animation: fadeIn .15s ease-out; }
+
+  @keyframes popIn {
+    from { opacity: 0; transform: scale(.96) translateY(6px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .pop-in { animation: popIn .18s ease-out; }
+
+  /* Toggle-Switch */
+  .switch { position: relative; display: inline-block; width: 46px; height: 26px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider {
+    position: absolute; inset: 0; cursor: pointer; background: #2a2d35;
+    border-radius: 999px; transition: background .15s ease;
+  }
+  .switch .slider:before {
+    content: ""; position: absolute; height: 20px; width: 20px; left: 3px; bottom: 3px;
+    background: #e8e9ed; border-radius: 50%; transition: transform .15s ease;
+  }
+  .switch input:checked + .slider { background: #5b6cff; }
+  .switch input:checked + .slider:before { transform: translateX(20px); }
+
+  .room-item.active { background: #1b1f27; border-color: #5b6cff44; }
+</style>
+</head>
+
+<body class="bg-base text-gray-100 antialiased h-screen overflow-hidden">
+
+<!-- ===================== LOADING SCREEN ===================== -->
+<div id="loading-screen" class="fixed inset-0 z-50 flex items-center justify-center bg-base">
+  <div class="flex items-center gap-3 text-muted">
+    <div class="w-5 h-5 rounded-full border-2 border-accent border-t-transparent animate-spin"></div>
+    <span class="font-display text-sm">Pulse wird geladen…</span>
+  </div>
+</div>
+
+<!-- ===================== AUTH SCREEN ===================== -->
+<div id="auth-screen" class="hidden fixed inset-0 z-40 flex items-center justify-center px-4 bg-base">
+  <div class="w-full max-w-sm">
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent/15 text-accent mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+      </div>
+      <h1 class="font-display text-2xl font-semibold">Pulse</h1>
+      <p class="text-muted text-sm mt-1">Privater Echtzeit-Chat</p>
+    </div>
+
+    <div class="bg-surface border border-edge rounded-2xl p-6">
+      <!-- LOGIN -->
+      <form id="login-form" class="space-y-4">
+        <h2 class="font-display font-semibold text-lg">Anmelden</h2>
+        <div>
+          <label class="block text-xs text-muted mb-1.5">E-Mail</label>
+          <input type="email" id="login-email" required autocomplete="email"
+            class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" placeholder="du@beispiel.de" />
+        </div>
+        <div>
+          <label class="block text-xs text-muted mb-1.5">Passwort</label>
+          <input type="password" id="login-password" required autocomplete="current-password"
+            class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" placeholder="••••••••" />
+        </div>
+        <button type="submit" class="w-full bg-accent hover:bg-accent/90 transition rounded-xl py-2.5 font-medium text-sm">Einloggen</button>
+        <p class="text-center text-sm text-muted">
+          Noch kein Konto?
+          <button type="button" id="show-register" class="text-accent hover:underline">Registrieren</button>
+        </p>
+      </form>
+
+      <!-- REGISTER -->
+      <form id="register-form" class="hidden space-y-4">
+        <h2 class="font-display font-semibold text-lg">Konto erstellen</h2>
+        <div>
+          <label class="block text-xs text-muted mb-1.5">Anzeigename</label>
+          <input type="text" id="register-name" required maxlength="32"
+            class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" placeholder="Dein Name" />
+        </div>
+        <div>
+          <label class="block text-xs text-muted mb-1.5">E-Mail</label>
+          <input type="email" id="register-email" required autocomplete="email"
+            class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" placeholder="du@beispiel.de" />
+        </div>
+        <div>
+          <label class="block text-xs text-muted mb-1.5">Passwort</label>
+          <input type="password" id="register-password" required minlength="6" autocomplete="new-password"
+            class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" placeholder="mind. 6 Zeichen" />
+        </div>
+        <button type="submit" class="w-full bg-accent hover:bg-accent/90 transition rounded-xl py-2.5 font-medium text-sm">Registrieren</button>
+        <p class="text-center text-sm text-muted">
+          Schon ein Konto?
+          <button type="button" id="show-login" class="text-accent hover:underline">Einloggen</button>
+        </p>
+      </form>
+
+      <p id="auth-message" class="hidden mt-4 text-sm text-center text-accent2"></p>
+      <p id="auth-error" class="hidden mt-4 text-sm text-center text-red-400"></p>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="app-shell" class="hidden h-full w-full flex">
+
+  <!-- Sidebar backdrop (mobile) -->
+  <div id="sidebar-backdrop" class="hidden fixed inset-0 bg-black/60 z-20 md:hidden"></div>
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="fixed md:static z-30 inset-y-0 left-0 w-[280px] max-w-[85vw] bg-surface border-r border-edge flex flex-col -translate-x-full md:translate-x-0 transition-transform duration-200">
+
+    <!-- Header / user -->
+    <div class="px-4 py-4 border-b border-edge flex items-center gap-3">
+      <div id="my-avatar" class="w-9 h-9 rounded-full flex items-center justify-center font-display font-semibold text-sm shrink-0"></div>
+      <div class="min-w-0 flex-1">
+        <p id="my-name" class="font-medium text-sm truncate"></p>
+        <p class="text-xs text-muted">Online</p>
+      </div>
+      <button id="settings-btn" title="Einstellungen" class="p-2 rounded-lg hover:bg-elevated transition text-muted hover:text-gray-100">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <!-- Find people -->
+    <div class="px-4 pt-4 space-y-2">
+      <div class="flex gap-1.5 p-1 bg-elevated rounded-xl">
+        <button id="tab-search" class="flex-1 text-xs font-medium py-1.5 rounded-lg bg-accent/15 text-accent transition">Suchen</button>
+        <button id="tab-code" class="flex-1 text-xs font-medium py-1.5 rounded-lg text-muted hover:text-gray-100 transition">Code</button>
+      </div>
+
+      <div id="search-panel">
+        <input id="search-input" type="text" placeholder="Öffentliche Nutzer suchen…"
+          class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2 text-sm outline-none focus:border-accent transition" />
+      </div>
+      <div id="code-panel" class="hidden flex gap-2">
+        <input id="code-input" type="text" maxlength="8" placeholder="8-stelliger Code"
+          class="flex-1 bg-elevated border border-edge rounded-xl px-3.5 py-2 text-sm uppercase tracking-widest font-mono outline-none focus:border-accent transition" />
+        <button id="code-search-btn" class="px-3 rounded-xl bg-accent/15 text-accent text-sm font-medium hover:bg-accent/25 transition">Suchen</button>
+      </div>
+
+      <div id="search-results" class="space-y-1 max-h-44 overflow-y-auto"></div>
+    </div>
+
+    <!-- New room -->
+    <div class="px-4 pt-4">
+      <button id="new-room-btn" class="w-full flex items-center justify-center gap-2 bg-elevated hover:bg-edge/60 border border-edge rounded-xl py-2.5 text-sm font-medium transition">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Neuer Raum
+      </button>
+    </div>
+
+    <!-- Room list -->
+    <div class="px-3 pt-4 pb-2 text-xs font-semibold text-muted uppercase tracking-wider">Chats</div>
+    <div id="room-list" class="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5"></div>
+
+    <!-- Logout -->
+    <div class="px-4 py-3 border-t border-edge">
+      <button id="logout-btn" class="w-full flex items-center justify-center gap-2 text-sm text-muted hover:text-red-400 transition py-1.5">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Abmelden
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 flex flex-col min-w-0 h-full">
+    <!-- Header -->
+    <header class="h-16 shrink-0 border-b border-edge flex items-center gap-3 px-4">
+      <button id="menu-btn" class="md:hidden p-2 -ml-2 rounded-lg hover:bg-elevated transition">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="min-w-0 flex-1">
+        <h1 id="room-title" class="font-display font-semibold truncate">Willkommen 👋</h1>
+        <p id="room-subtitle" class="text-xs text-muted truncate"></p>
+      </div>
+      <button id="invite-btn" class="hidden shrink-0 flex items-center gap-1.5 text-xs font-medium bg-elevated hover:bg-edge/60 border border-edge rounded-lg px-3 py-2 transition">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Einladen
+      </button>
+    </header>
+
+    <!-- Messages -->
+    <div id="messages-container" class="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div id="empty-state" class="h-full flex flex-col items-center justify-center text-center text-muted px-6">
+        <div class="w-14 h-14 rounded-2xl bg-elevated flex items-center justify-center mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </div>
+        <p class="font-display font-medium text-gray-200">Noch kein Chat ausgewählt</p>
+        <p class="text-sm mt-1 max-w-xs">Wähle links einen Chat aus, erstelle einen neuen Raum oder suche nach Nutzern.</p>
+      </div>
+    </div>
+
+    <!-- Composer -->
+    <form id="message-form" class="hidden shrink-0 border-t border-edge p-3 flex items-center gap-2">
+      <input id="message-input" type="text" autocomplete="off" placeholder="Nachricht schreiben…"
+        class="flex-1 bg-elevated border border-edge rounded-xl px-4 py-2.5 text-sm outline-none focus:border-accent transition" />
+      <button type="submit" class="shrink-0 w-10 h-10 rounded-xl bg-accent hover:bg-accent/90 flex items-center justify-center transition">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </form>
+  </main>
+</div>
+
+<!-- ===================== SETTINGS MODAL ===================== -->
+<div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60">
+  <div class="pop-in w-full max-w-md bg-surface border border-edge rounded-2xl p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="font-display font-semibold text-lg">Einstellungen</h2>
+      <button class="modal-close p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-gray-100 transition" data-modal="settings-modal">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="space-y-5">
+      <!-- Display name -->
+      <div>
+        <label class="block text-xs text-muted mb-1.5">Anzeigename</label>
+        <div class="flex gap-2">
+          <input id="settings-name" type="text" maxlength="32"
+            class="flex-1 bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" />
+          <button id="settings-save-name" class="px-4 rounded-xl bg-accent hover:bg-accent/90 text-sm font-medium transition">Speichern</button>
+        </div>
+      </div>
+
+      <!-- Privacy toggle -->
+      <div class="bg-elevated border border-edge rounded-xl p-4 flex items-start justify-between gap-4">
+        <div>
+          <p class="font-medium text-sm" id="privacy-label">Profil ist öffentlich</p>
+          <p class="text-xs text-muted mt-1">Öffentliche Profile lassen sich über die Nutzersuche finden. Private Profile sind nur über deinen privaten Code erreichbar.</p>
+        </div>
+        <label class="switch mt-0.5">
+          <input type="checkbox" id="privacy-toggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Private code -->
+      <div>
+        <p class="text-xs text-muted mb-1.5">Dein privater Code</p>
+        <div class="bg-elevated border border-dashed border-edge rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+          <span id="private-code" class="font-mono text-xl font-semibold tracking-[0.35em] text-accent2"></span>
+          <div class="flex gap-1.5 shrink-0">
+            <button id="copy-code-btn" title="Kopieren" class="p-2 rounded-lg bg-base/60 hover:bg-base border border-edge transition">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+            <button id="regenerate-code-btn" title="Neu generieren" class="p-2 rounded-lg bg-base/60 hover:bg-base border border-edge transition">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="text-xs text-muted mt-1.5">Teile diesen Code, damit dich jemand trotz privatem Profil hinzufügen kann.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== NEW ROOM MODAL ===================== -->
+<div id="newroom-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center px-4 bg-black/60">
+  <div class="pop-in w-full max-w-md bg-surface border border-edge rounded-2xl p-6">
+    <div class="flex items-center justify-between mb-5">
+      <h2 class="font-display font-semibold text-lg">Neuer Raum</h2>
+      <button class="modal-close p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-gray-100 transition" data-modal="newroom-modal">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div id="newroom-form-step">
+      <label class="block text-xs text-muted mb-1.5">Raumname</label>
+      <input id="newroom-name" type="text" maxlength="40" placeholder="z. B. Projektteam"
+        class="w-full bg-elevated border border-edge rounded-xl px-3.5 py-2.5 text-sm outline-none focus:border-accent transition" />
+      <button id="newroom-create-btn" class="w-full mt-4 bg-accent hover:bg-accent/90 transition rounded-xl py-2.5 font-medium text-sm">Erstellen</button>
+    </div>
+
+    <div id="newroom-invite-step" class="hidden">
+      <p class="text-sm text-muted mb-2">Raum erstellt! Teile diesen Link, um andere einzuladen:</p>
+      <div class="bg-elevated border border-edge rounded-xl px-3.5 py-2.5 flex items-center gap-2">
+        <input id="newroom-invite-link" type="text" readonly class="flex-1 bg-transparent text-xs font-mono outline-none truncate" />
+        <button id="newroom-copy-btn" class="shrink-0 px-3 py-1.5 rounded-lg bg-accent/15 text-accent text-xs font-medium hover:bg-accent/25 transition">Kopieren</button>
+      </div>
+      <button id="newroom-done-btn" class="w-full mt-4 bg-elevated hover:bg-edge/60 border border-edge transition rounded-xl py-2.5 font-medium text-sm">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TOAST ===================== -->
+<div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-[60] bg-elevated border border-edge text-sm px-4 py-2.5 rounded-xl shadow-xl"></div>
+
+<script>
+/* ============================================================================
+   KONFIGURATION – hier deine eigenen Supabase-Zugangsdaten eintragen
+   ========================================================================= */
+const SUPABASE_URL = 'https://DEIN-PROJEKT.supabase.co';
+const SUPABASE_ANON_KEY = 'DEIN-ANON-KEY';
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ============================================================================
+   STATE
+   ========================================================================= */
+let currentUser = null;
+let currentProfile = null;
+let roomsCache = [];
+let activeRoomId = null;
+let activeChannel = null;
+let memberNames = {};
+let pendingInviteRoomId = new URLSearchParams(window.location.search).get('room');
+
+const AVATAR_COLORS = ['#5b6cff', '#22d3c5', '#f97316', '#ec4899', '#8b5cf6', '#10b981', '#eab308'];
+
+/* ============================================================================
+   HELFER
+   ========================================================================= */
+function el(id) { return document.getElementById(id); }
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+
+function avatarColor(name) {
+  let hash = 0;
+  for (const ch of (name || '?')) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function initials(name) {
+  if (!name) return '?';
+  return name.trim().slice(0, 2).toUpperCase();
+}
+
+function formatTime(ts) {
+  return new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = el('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  t.classList.add('fade-in');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2600);
+}
+
+function openModal(id) { el(id).classList.remove('hidden'); }
+function closeModal(id) { el(id).classList.add('hidden'); }
+
+document.querySelectorAll('.modal-close').forEach(btn => {
+  btn.addEventListener('click', () => closeModal(btn.dataset.modal));
+});
+
+/* ============================================================================
+   AUTH
+   ========================================================================= */
+el('show-register').addEventListener('click', () => {
+  el('login-form').classList.add('hidden');
+  el('register-form').classList.remove('hidden');
+  clearAuthMessages();
+});
+el('show-login').addEventListener('click', () => {
+  el('register-form').classList.add('hidden');
+  el('login-form').classList.remove('hidden');
+  clearAuthMessages();
+});
+
+function clearAuthMessages() {
+  el('auth-message').classList.add('hidden');
+  el('auth-error').classList.add('hidden');
+}
+
+el('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearAuthMessages();
+  const email = el('login-email').value.trim();
+  const password = el('login-password').value;
+  const { error } = await db.auth.signInWithPassword({ email, password });
+  if (error) {
+    el('auth-error').textContent = 'Login fehlgeschlagen: ' + error.message;
+    el('auth-error').classList.remove('hidden');
+  }
+});
+
+el('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearAuthMessages();
+  const display_name = el('register-name').value.trim();
+  const email = el('register-email').value.trim();
+  const password = el('register-password').value;
+
+  const { data, error } = await db.auth.signUp({
+    email, password,
+    options: { data: { display_name } }
+  });
+
+  if (error) {
+    el('auth-error').textContent = 'Registrierung fehlgeschlagen: ' + error.message;
+    el('auth-error').classList.remove('hidden');
+    return;
+  }
+
+  if (!data.session) {
+    el('auth-message').textContent = 'Konto erstellt! Bitte bestätige deine E-Mail-Adresse und melde dich anschließend an.';
+    el('auth-message').classList.remove('hidden');
+    el('register-form').classList.add('hidden');
+    el('login-form').classList.remove('hidden');
+  }
+});
+
+el('logout-btn').addEventListener('click', async () => {
+  if (activeChannel) { db.removeChannel(activeChannel); activeChannel = null; }
+  await db.auth.signOut();
+});
+
+db.auth.onAuthStateChange(async (_event, session) => {
+  el('loading-screen').classList.add('hidden');
+  if (session?.user) {
+    currentUser = session.user;
+    await afterLogin();
+  } else {
+    currentUser = null;
+    currentProfile = null;
+    activeRoomId = null;
+    if (activeChannel) { db.removeChannel(activeChannel); activeChannel = null; }
+    el('app-shell').classList.add('hidden');
+    el('settings-modal').classList.add('hidden');
+    el('newroom-modal').classList.add('hidden');
+    el('auth-screen').classList.remove('hidden');
+  }
+});
+
+/* ============================================================================
+   APP START NACH LOGIN
+   ========================================================================= */
+async function afterLogin() {
+  el('auth-screen').classList.add('hidden');
+  el('app-shell').classList.remove('hidden');
+
+  await loadProfile();
+  await loadRooms();
+
+  if (pendingInviteRoomId) {
+    const roomId = pendingInviteRoomId;
+    pendingInviteRoomId = null;
+    history.replaceState({}, '', window.location.pathname);
+    await joinViaInvite(roomId);
+  } else if (roomsCache.length) {
+    openRoom(roomsCache[0].id);
+  }
+}
+
+/* ============================================================================
+   PROFIL
+   ========================================================================= */
+async function loadProfile() {
+  const { data, error } = await db.from('profiles').select('*').eq('id', currentUser.id).single();
+  if (error) { showToast('Profil konnte nicht geladen werden.'); return; }
+  currentProfile = data;
+  renderProfile();
+}
+
+function renderProfile() {
+  el('my-name').textContent = currentProfile.display_name;
+  const av = el('my-avatar');
+  av.style.background = avatarColor(currentProfile.display_name);
+  av.textContent = initials(currentProfile.display_name);
+
+  el('settings-name').value = currentProfile.display_name;
+  el('private-code').textContent = currentProfile.private_code;
+  el('privacy-toggle').checked = !currentProfile.is_public;
+  el('privacy-label').textContent = currentProfile.is_public ? 'Profil ist öffentlich' : 'Profil ist privat';
+}
+
+el('settings-btn').addEventListener('click', () => openModal('settings-modal'));
+
+el('settings-save-name').addEventListener('click', async () => {
+  const name = el('settings-name').value.trim();
+  if (!name) return;
+  const { error } = await db.from('profiles').update({ display_name: name }).eq('id', currentUser.id);
+  if (error) { showToast('Speichern fehlgeschlagen.'); return; }
+  currentProfile.display_name = name;
+  renderProfile();
+  renderRoomList();
+  showToast('Anzeigename gespeichert.');
+});
+
+el('privacy-toggle').addEventListener('change', async (e) => {
+  const isPublic = !e.target.checked;
+  const { error } = await db.from('profiles').update({ is_public: isPublic }).eq('id', currentUser.id);
+  if (error) { showToast('Änderung fehlgeschlagen.'); e.target.checked = !isPublic; return; }
+  currentProfile.is_public = isPublic;
+  el('privacy-label').textContent = isPublic ? 'Profil ist öffentlich' : 'Profil ist privat';
+  showToast(isPublic ? 'Profil ist jetzt öffentlich.' : 'Profil ist jetzt privat.');
+});
+
+el('copy-code-btn').addEventListener('click', () => {
+  navigator.clipboard.writeText(currentProfile.private_code);
+  showToast('Code kopiert.');
+});
+
+el('regenerate-code-btn').addEventListener('click', async () => {
+  const { data, error } = await db.rpc('regenerate_my_private_code');
+  if (error) { showToast('Konnte Code nicht erneuern.'); return; }
+  currentProfile.private_code = data;
+  renderProfile();
+  showToast('Neuer Code generiert.');
+});
+
+/* ============================================================================
+   SUCHE / NUTZER FINDEN
+   ========================================================================= */
+el('tab-search').addEventListener('click', () => {
+  el('tab-search').classList.add('bg-accent/15', 'text-accent');
+  el('tab-search').classList.remove('text-muted');
+  el('tab-code').classList.remove('bg-accent/15', 'text-accent');
+  el('tab-code').classList.add('text-muted');
+  el('search-panel').classList.remove('hidden');
+  el('code-panel').classList.add('hidden');
+  renderSearchResults([]);
+});
+
+el('tab-code').addEventListener('click', () => {
+  el('tab-code').classList.add('bg-accent/15', 'text-accent');
+  el('tab-code').classList.remove('text-muted');
+  el('tab-search').classList.remove('bg-accent/15', 'text-accent');
+  el('tab-search').classList.add('text-muted');
+  el('code-panel').classList.remove('hidden');
+  el('search-panel').classList.add('hidden');
+  renderSearchResults([]);
+});
+
+let searchDebounce = null;
+el('search-input').addEventListener('input', (e) => {
+  clearTimeout(searchDebounce);
+  const term = e.target.value.trim();
+  searchDebounce = setTimeout(() => searchUsers(term), 300);
+});
+
+async function searchUsers(term) {
+  if (!term) { renderSearchResults([]); return; }
+  const { data, error } = await db.from('profiles')
+    .select('id, display_name')
+    .eq('is_public', true)
+    .neq('id', currentUser.id)
+    .ilike('display_name', `%${term}%`)
+    .limit(8);
+  if (error) return;
+  renderSearchResults(data || []);
+}
+
+el('code-search-btn').addEventListener('click', () => findByCode());
+el('code-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') findByCode(); });
+
+async function findByCode() {
+  const code = el('code-input').value.trim();
+  if (code.length !== 8) { showToast('Der Code hat 8 Zeichen.'); return; }
+  const { data, error } = await db.rpc('find_user_by_private_code', { _code: code });
+  if (error || !data || !data.length) {
+    showToast('Kein Nutzer mit diesem Code gefunden.');
+    renderSearchResults([]);
+    return;
+  }
+  renderSearchResults(data);
+}
+
+function renderSearchResults(results) {
+  const container = el('search-results');
+  container.innerHTML = '';
+  results.forEach(u => {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-elevated transition fade-in';
+    row.innerHTML = `
+      <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-display font-semibold shrink-0" style="background:${avatarColor(u.display_name)}">${initials(u.display_name)}</div>
+      <span class="flex-1 text-sm truncate">${escapeHtml(u.display_name)}</span>
+      <button class="start-chat-btn text-xs font-medium text-accent hover:underline shrink-0" data-uid="${u.id}">Chat starten</button>
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll('.start-chat-btn').forEach(btn => {
+    btn.addEventListener('click', () => startChatWith(btn.dataset.uid));
+  });
+}
+
+async function startChatWith(otherUserId) {
+  const { data, error } = await db.rpc('start_direct_chat', { _other_user: otherUserId });
+  if (error) { showToast('Chat konnte nicht gestartet werden.'); return; }
+  el('search-input').value = '';
+  el('code-input').value = '';
+  renderSearchResults([]);
+  await loadRooms();
+  openRoom(data);
+  closeSidebarMobile();
+}
+
+/* ============================================================================
+   RÄUME
+   ========================================================================= */
+async function loadRooms() {
+  const { data, error } = await db.from('room_members')
+    .select('room_id, rooms(id, name, is_direct, created_at)')
+    .eq('user_id', currentUser.id);
+
+  if (error) { showToast('Räume konnten nicht geladen werden.'); return; }
+
+  roomsCache = (data || [])
+    .map(r => r.rooms)
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  // Anzeigenamen für 1:1-Chats auflösen
+  const directIds = roomsCache.filter(r => r.is_direct).map(r => r.id);
+  const partnerNames = {};
+  if (directIds.length) {
+    const { data: members } = await db.from('room_members')
+      .select('room_id, profiles(display_name)')
+      .in('room_id', directIds)
+      .neq('user_id', currentUser.id);
+    (members || []).forEach(m => { partnerNames[m.room_id] = m.profiles?.display_name || 'Unbekannt'; });
+  }
+
+  roomsCache.forEach(r => {
+    r.displayTitle = r.is_direct ? (partnerNames[r.id] || 'Direktnachricht') : r.name;
+  });
+
+  renderRoomList();
+}
+
+function renderRoomList() {
+  const container = el('room-list');
+  container.innerHTML = '';
+
+  if (!roomsCache.length) {
+    container.innerHTML = `<p class="text-xs text-muted px-2 py-3">Noch keine Chats. Suche jemanden oder erstelle einen Raum.</p>`;
+    return;
+  }
+
+  roomsCache.forEach(r => {
+    const item = document.createElement('button');
+    item.className = `room-item w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-transparent hover:bg-elevated transition text-left ${r.id === activeRoomId ? 'active' : ''}`;
+    const icon = r.is_direct
+      ? `<div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-display font-semibold shrink-0" style="background:${avatarColor(r.displayTitle)}">${initials(r.displayTitle)}</div>`
+      : `<div class="w-8 h-8 rounded-xl bg-elevated border border-edge flex items-center justify-center text-muted shrink-0">
+           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+         </div>`;
+    item.innerHTML = `${icon}<span class="text-sm font-medium truncate">${escapeHtml(r.displayTitle)}</span>`;
+    item.addEventListener('click', () => openRoom(r.id));
+    container.appendChild(item);
+  });
+}
+
+/* New room modal */
+el('new-room-btn').addEventListener('click', () => {
+  el('newroom-name').value = '';
+  el('newroom-form-step').classList.remove('hidden');
+  el('newroom-invite-step').classList.add('hidden');
+  openModal('newroom-modal');
+});
+
+el('newroom-create-btn').addEventListener('click', async () => {
+  const name = el('newroom-name').value.trim();
+  if (!name) { showToast('Bitte einen Namen eingeben.'); return; }
+
+  const { data: room, error } = await db.from('rooms')
+    .insert({ name, is_direct: false, created_by: currentUser.id })
+    .select().single();
+  if (error) { showToast('Raum konnte nicht erstellt werden.'); return; }
+
+  await db.from('room_members').insert({ room_id: room.id, user_id: currentUser.id });
+  await loadRooms();
+
+  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${room.id}`;
+  el('newroom-invite-link').value = inviteUrl;
+  el('newroom-form-step').classList.add('hidden');
+  el('newroom-invite-step').classList.remove('hidden');
+
+  openRoom(room.id);
+});
+
+el('newroom-copy-btn').addEventListener('click', () => {
+  navigator.clipboard.writeText(el('newroom-invite-link').value);
+  showToast('Einladungslink kopiert.');
+});
+
+el('newroom-done-btn').addEventListener('click', () => closeModal('newroom-modal'));
+
+/* Invite link */
+el('invite-btn').addEventListener('click', () => {
+  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${activeRoomId}`;
+  navigator.clipboard.writeText(inviteUrl);
+  showToast('Einladungslink kopiert.');
+});
+
+async function joinViaInvite(roomId) {
+  const { error } = await db.from('room_members').insert({ room_id: roomId, user_id: currentUser.id });
+  // 23505 = unique_violation -> man ist bereits Mitglied, kein Problem
+  if (error && error.code !== '23505') {
+    showToast('Einladungslink ist ungültig oder der Raum existiert nicht.');
+    return;
+  }
+  await loadRooms();
+  openRoom(roomId);
+}
+
+/* ============================================================================
+   CHAT
+   ========================================================================= */
+async function openRoom(roomId) {
+  activeRoomId = roomId;
+  renderRoomList();
+
+  const room = roomsCache.find(r => r.id === roomId);
+  el('room-title').textContent = room ? room.displayTitle : 'Chat';
+  el('room-subtitle').textContent = room && !room.is_direct ? 'Gruppenchat' : '';
+  el('invite-btn').classList.toggle('hidden', !(room && !room.is_direct));
+
+  el('message-form').classList.remove('hidden');
+  el('empty-state').classList.add('hidden');
+
+  if (activeChannel) { db.removeChannel(activeChannel); activeChannel = null; }
+
+  await loadMembers(roomId);
+  await loadMessages(roomId);
+  subscribeToMessages(roomId);
+}
+
+async function loadMembers(roomId) {
+  const { data } = await db.from('room_members')
+    .select('user_id, profiles(display_name)')
+    .eq('room_id', roomId);
+  memberNames = {};
+  (data || []).forEach(m => { memberNames[m.user_id] = m.profiles?.display_name || 'Unbekannt'; });
+}
+
+async function loadMessages(roomId) {
+  const { data, error } = await db.from('messages')
+    .select('id, content, created_at, user_id')
+    .eq('room_id', roomId)
+    .order('created_at', { ascending: true })
+    .limit(200);
+
+  const container = el('messages-container');
+  container.innerHTML = '';
+  if (error) { showToast('Nachrichten konnten nicht geladen werden.'); return; }
+
+  (data || []).forEach(m => container.appendChild(buildBubble(m)));
+  scrollToBottom();
+}
+
+function buildBubble(msg) {
+  const isOwn = msg.user_id === currentUser.id;
+  const name = memberNames[msg.user_id] || 'Unbekannt';
+
+  const wrapper = document.createElement('div');
+  wrapper.className = `msg-bubble flex flex-col ${isOwn ? 'items-end' : 'items-start'}`;
+
+  const meta = !isOwn ? `<p class="text-xs text-muted mb-1 px-1">${escapeHtml(name)}</p>` : '';
+
+  wrapper.innerHTML = `
+    ${meta}
+    <div class="max-w-[78%] sm:max-w-[60%] rounded-2xl px-4 py-2 text-sm leading-relaxed break-words ${
+      isOwn ? 'bg-accent text-white rounded-br-md' : 'bg-elevated border border-edge rounded-bl-md'
+    }">
+      ${escapeHtml(msg.content)}
+    </div>
+    <span class="text-[11px] text-muted mt-1 px-1">${formatTime(msg.created_at)}</span>
+  `;
+  return wrapper;
+}
+
+function scrollToBottom() {
+  const c = el('messages-container');
+  c.scrollTop = c.scrollHeight;
+}
+
+function subscribeToMessages(roomId) {
+  activeChannel = db.channel(`messages-room-${roomId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${roomId}`
+    }, (payload) => {
+      if (payload.new.room_id !== activeRoomId) return;
+      el('messages-container').appendChild(buildBubble(payload.new));
+      scrollToBottom();
+    })
+    .subscribe();
+}
+
+el('message-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = el('message-input');
+  const content = input.value.trim();
+  if (!content || !activeRoomId) return;
+  input.value = '';
+
+  const { error } = await db.from('messages').insert({
+    room_id: activeRoomId, user_id: currentUser.id, content
+  });
+  if (error) showToast('Nachricht konnte nicht gesendet werden.');
+});
+
+/* ============================================================================
+   MOBILE SIDEBAR
+   ========================================================================= */
+function openSidebarMobile() {
+  el('sidebar').classList.remove('-translate-x-full');
+  el('sidebar-backdrop').classList.remove('hidden');
+}
+function closeSidebarMobile() {
+  el('sidebar').classList.add('-translate-x-full');
+  el('sidebar-backdrop').classList.add('hidden');
+}
+el('menu-btn').addEventListener('click', openSidebarMobile);
+el('sidebar-backdrop').addEventListener('click', closeSidebarMobile);
+</script>
+</body>
+</html>
