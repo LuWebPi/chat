@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Pulse Chat</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;background:#0f1117;color:#e8e9ed;font-family:system-ui,-apple-system,sans-serif}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:#2a2d35;border-radius:4px}
+.hidden{display:none!important}
+input,button{font-family:inherit;color:inherit;cursor:pointer}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.fadeUp{animation:fadeUp .18s ease}
+
+/* Inputs */
+.inp{background:#0f1117;border:1px solid #2a2d35;border-radius:10px;padding:10px 14px;font-size:14px;color:#e8e9ed;outline:none;width:100%;transition:border .15s}
+.inp:focus{border-color:#6366f1}
+
+/* Buttons */
+.btn{border:none;border-radius:10px;padding:11px 16px;font-size:14px;font-weight:600;width:100%;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-p{background:#6366f1;color:#fff}
+.btn-g{background:#2a2d35;color:#aaa}
+
+/* Toggle switch */
+.sw{position:relative;width:44px;height:24px;display:inline-block;flex-shrink:0}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw .track{position:absolute;inset:0;background:#2a2d35;border-radius:99px;cursor:pointer;transition:.15s}
+.sw .track:before{content:'';position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+.sw input:checked + .track{background:#6366f1}
+.sw input:checked + .track:before{transform:translateX(20px)}
+
+/* Tab buttons */
+.tab{flex:1;padding:7px 4px;border-radius:8px;border:none;background:none;color:#555;font-size:12px;font-weight:600;transition:.15s}
+.tab.on{background:#6366f1;color:#fff}
+
+/* Room items */
+.ri{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:10px;border:1px solid transparent;cursor:pointer;transition:.1s}
+.ri:hover{background:#1f2330}
+.ri.active{background:#2a2d35;border-color:#6366f144}
+
+/* Backdrop */
+#backdrop{position:fixed;inset:0;background:#0009;z-index:30;display:none}
+
+/* Modal */
+.modal{position:fixed;inset:0;background:#0009;z-index:50;display:none;align-items:center;justify-content:center;padding:16px}
+.modal.open{display:flex}
+.mbox{background:#1a1d27;border:1px solid #2a2d35;border-radius:18px;padding:24px;width:100%;max-width:400px}
+.mhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.mhead h2{font-size:16px;font-weight:700}
+.xbtn{background:none;border:none;color:#555;font-size:22px;padding:0 4px;line-height:1}
+.xbtn:hover{color:#e8e9ed}
+
+/* Code display */
+.codebox{background:#0f1117;border:1.5px dashed #333;border-radius:12px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.codetext{font-size:22px;font-weight:700;letter-spacing:5px;color:#6366f1;font-family:monospace}
+.icobtn{background:#1f2330;border:none;border-radius:8px;padding:7px 10px;color:#777;font-size:14px;transition:.15s}
+.icobtn:hover{background:#2a2d35;color:#e8e9ed}
+
+/* Section label */
+.slabel{font-size:11px;color:#444;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:6px 14px 4px}
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div id="loading" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0f1117;z-index:99">
+  <div style="text-align:center">
+    <div style="width:36px;height:36px;border:3px solid #6366f1;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div>
+    <p style="color:#555;font-size:13px">Laden…</p>
+  </div>
+</div>
+
+<!-- AUTH -->
+<div id="auth" class="hidden" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0f1117;padding:16px;z-index:50">
+  <div style="width:100%;max-width:380px">
+    <div style="text-align:center;margin-bottom:24px">
+      <div style="width:52px;height:52px;background:#6366f1;border-radius:16px;display:inline-flex;align-items:center;justify-content:center;font-size:26px;margin-bottom:10px">💬</div>
+      <h1 style="font-size:22px;font-weight:700">Pulse Chat</h1>
+      <p style="color:#555;font-size:13px;margin-top:3px">Sicherer Echtzeit-Chat</p>
+    </div>
+    <div style="background:#1a1d27;border:1px solid #2a2d35;border-radius:16px;padding:24px">
+      <!-- Login -->
+      <div id="login-view">
+        <h2 style="font-size:15px;font-weight:700;margin-bottom:14px">Anmelden</h2>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <input id="l-email" type="email" placeholder="E-Mail" class="inp"/>
+          <input id="l-pass" type="password" placeholder="Passwort" class="inp"/>
+          <button onclick="doLogin()" class="btn btn-p" style="margin-top:3px">Einloggen</button>
+        </div>
+        <p style="text-align:center;font-size:13px;color:#555;margin-top:14px">
+          Noch kein Konto? <button onclick="showReg()" style="background:none;border:none;color:#6366f1;font-size:13px">Registrieren</button>
+        </p>
+      </div>
+      <!-- Register -->
+      <div id="reg-view" class="hidden">
+        <h2 style="font-size:15px;font-weight:700;margin-bottom:14px">Konto erstellen</h2>
+        <div style="display:flex;flex-direction:column;gap:9px">
+          <input id="r-name" type="text" placeholder="Anzeigename" maxlength="32" class="inp"/>
+          <input id="r-email" type="email" placeholder="E-Mail" class="inp"/>
+          <input id="r-pass" type="password" placeholder="Passwort (min. 6 Zeichen)" class="inp"/>
+          <button onclick="doRegister()" class="btn btn-p" style="margin-top:3px">Registrieren</button>
+        </div>
+        <p style="text-align:center;font-size:13px;color:#555;margin-top:14px">
+          Schon ein Konto? <button onclick="showLogin()" style="background:none;border:none;color:#6366f1;font-size:13px">Einloggen</button>
+        </p>
+      </div>
+      <p id="auth-err" class="hidden" style="color:#f87171;font-size:13px;text-align:center;margin-top:12px"></p>
+      <p id="auth-ok"  class="hidden" style="color:#34d399;font-size:13px;text-align:center;margin-top:12px"></p>
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE BACKDROP (schließt Sidebar) -->
+<div id="backdrop" onclick="closeSidebar()"></div>
+
+<!-- APP -->
+<div id="app" class="hidden" style="display:flex;height:100vh;width:100vw;overflow:hidden">
+
+  <!-- SIDEBAR -->
+  <div id="sidebar" style="width:280px;min-width:280px;background:#1a1d27;border-right:1px solid #2a2d35;display:flex;flex-direction:column;height:100vh;z-index:35;transition:transform .25s">
+
+    <!-- User header -->
+    <div style="padding:12px;border-bottom:1px solid #2a2d35;display:flex;align-items:center;gap:10px;flex-shrink:0">
+      <div id="my-av" style="width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <p id="my-name" style="font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">…</p>
+        <p style="font-size:11px;color:#34d399">● Online</p>
+      </div>
+      <button onclick="openSettings()" class="icobtn" title="Einstellungen">⚙️</button>
+      <!-- Schließen-Button nur mobil sichtbar -->
+      <button id="close-sb-btn" class="icobtn hidden" onclick="closeSidebar()" title="Schließen" style="font-size:18px">✕</button>
+    </div>
+
+    <!-- Tabs -->
+    <div style="padding:10px 10px 0;flex-shrink:0">
+      <div style="display:flex;gap:3px;background:#0f1117;border-radius:10px;padding:4px">
+        <button id="tab-s" class="tab on"  onclick="switchTab('s')">Suchen</button>
+        <button id="tab-c" class="tab"     onclick="switchTab('c')">Nutzer-Code</button>
+        <button id="tab-r" class="tab"     onclick="switchTab('r')">Raum-Code</button>
+      </div>
+    </div>
+
+    <!-- Panels -->
+    <div style="padding:8px 10px;flex-shrink:0">
+      <div id="panel-s">
+        <input id="search-inp" type="text" placeholder="Öffentliche Nutzer suchen…" class="inp" style="font-size:13px;padding:8px 12px" oninput="onSearch(this.value)"/>
+      </div>
+      <div id="panel-c" class="hidden" style="display:flex;gap:6px">
+        <input id="code-inp" type="text" maxlength="8" placeholder="8-stelliger Code" class="inp" style="font-size:13px;padding:8px 12px;text-transform:uppercase;letter-spacing:3px;font-family:monospace"/>
+        <button onclick="searchByCode()" class="btn btn-p" style="width:auto;padding:8px 14px;font-size:14px;border-radius:10px">→</button>
+      </div>
+      <div id="panel-r" class="hidden" style="display:flex;gap:6px">
+        <input id="rcode-inp" type="text" maxlength="8" placeholder="Raum-Code eingeben" class="inp" style="font-size:13px;padding:8px 12px;text-transform:uppercase;letter-spacing:3px;font-family:monospace"/>
+        <button onclick="joinByRoomCode()" class="btn btn-p" style="width:auto;padding:8px 14px;font-size:14px;border-radius:10px">→</button>
+      </div>
+      <div id="search-res" style="margin-top:6px;max-height:140px;overflow-y:auto"></div>
+    </div>
+
+    <!-- Neuer Raum -->
+    <div style="padding:0 10px 8px;flex-shrink:0">
+      <button onclick="openNewRoom()" class="btn btn-g" style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;border:1px dashed #333;padding:9px">
+        <span style="font-size:17px;line-height:1">+</span> Neuer Gruppenraum
+      </button>
+    </div>
+
+    <p class="slabel">Meine Chats</p>
+    <div id="room-list" style="flex:1;overflow-y:auto;padding:2px 8px 8px"></div>
+
+    <div style="padding:8px 10px;border-top:1px solid #2a2d35;flex-shrink:0">
+      <button onclick="doLogout()" class="btn btn-g" style="font-size:13px;padding:9px">← Abmelden</button>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0;height:100vh">
+
+    <!-- Chat Header -->
+    <div style="height:58px;border-bottom:1px solid #2a2d35;display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0">
+      <button id="menu-btn" onclick="openSidebar()" class="icobtn hidden" style="font-size:18px">☰</button>
+      <div id="room-av" style="width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;background:#2a2d35"></div>
+      <div style="flex:1;min-width:0">
+        <p id="room-title" style="font-size:15px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Wähle einen Chat</p>
+        <p id="room-sub" style="font-size:11px;color:#444"></p>
+      </div>
+      <div id="room-code-area" class="hidden" style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+        <span style="font-size:11px;color:#444">Code:</span>
+        <span id="room-code-val" style="font-size:13px;font-weight:700;letter-spacing:2px;color:#6366f1;font-family:monospace"></span>
+        <button onclick="copyRoomCode()" class="icobtn" style="padding:5px 8px;font-size:13px">📋</button>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div id="msgs" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px">
+      <div id="empty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#333;text-align:center;gap:10px">
+        <div style="font-size:44px">💬</div>
+        <p style="font-size:15px;font-weight:600;color:#3a3a4a">Noch kein Chat ausgewählt</p>
+        <p style="font-size:13px;max-width:260px;line-height:1.6;color:#333">Suche Nutzer, nutze einen Code oder erstelle einen Gruppenraum.</p>
+      </div>
+    </div>
+
+    <!-- Composer -->
+    <form id="composer" class="hidden" onsubmit="sendMsg(event)" style="padding:10px 14px;border-top:1px solid #2a2d35;display:flex;gap:8px;flex-shrink:0;align-items:center">
+      <input id="msg-inp" type="text" autocomplete="off" placeholder="Nachricht schreiben…" class="inp" style="padding:10px 15px"/>
+      <button type="submit" style="width:42px;height:42px;background:#6366f1;border:none;border-radius:12px;color:#fff;font-size:18px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:opacity .15s" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">→</button>
+    </form>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="settings-modal" class="modal">
+  <div class="mbox">
+    <div class="mhead">
+      <h2>⚙️ Einstellungen</h2>
+      <button onclick="closeSettings()" class="xbtn">✕</button>
+    </div>
+
+    <p class="slabel" style="padding:0 0 6px">Anzeigename</p>
+    <div style="display:flex;gap:8px;margin-bottom:18px">
+      <input id="set-name" type="text" maxlength="32" class="inp" style="padding:9px 12px"/>
+      <button onclick="saveName()" class="btn btn-p" style="width:auto;padding:9px 14px;font-size:13px;border-radius:10px">Speichern</button>
+    </div>
+
+    <p class="slabel" style="padding:0 0 8px">Privatsphäre</p>
+    <div style="background:#0f1117;border:1px solid #2a2d35;border-radius:12px;padding:14px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <p id="priv-label" style="font-size:14px;font-weight:500">Profil öffentlich</p>
+        <p style="font-size:12px;color:#444;margin-top:2px">Öffentlich = über Suche auffindbar</p>
+      </div>
+      <label class="sw">
+        <input type="checkbox" id="priv-toggle" onchange="savePrivacy()"/>
+        <span class="track"></span>
+      </label>
+    </div>
+
+    <p class="slabel" style="padding:0 0 8px">Dein privater Nutzer-Code</p>
+    <div class="codebox" style="margin-bottom:6px">
+      <span id="my-code" class="codetext">--------</span>
+      <div style="display:flex;gap:6px">
+        <button onclick="copyMyCode()" class="icobtn" title="Kopieren">📋</button>
+        <button onclick="regenCode()"  class="icobtn" title="Neu generieren">🔄</button>
+      </div>
+    </div>
+    <p style="font-size:11px;color:#444;line-height:1.5;margin-bottom:4px">Teile diesen Code, damit dich jemand trotz privatem Profil als Kontakt hinzufügen kann.</p>
+  </div>
+</div>
+
+<!-- NEW ROOM MODAL -->
+<div id="newroom-modal" class="modal">
+  <div class="mbox" style="max-width:360px">
+    <div class="mhead">
+      <h2>+ Neuer Gruppenraum</h2>
+      <button onclick="closeNewRoom()" class="xbtn">✕</button>
+    </div>
+    <div id="nr-step1">
+      <p style="font-size:12px;color:#555;margin-bottom:6px">Raumname</p>
+      <input id="nr-name" type="text" maxlength="40" placeholder="z. B. Projektteam" class="inp" style="margin-bottom:14px"/>
+      <button onclick="createRoom()" class="btn btn-p">Raum erstellen</button>
+    </div>
+    <div id="nr-step2" class="hidden">
+      <p style="font-size:14px;color:#34d399;font-weight:600;margin-bottom:14px">✅ Raum erstellt!</p>
+      <p style="font-size:12px;color:#555;margin-bottom:8px">Raum-Code (zum Teilen)</p>
+      <div class="codebox" style="margin-bottom:12px">
+        <span id="nr-code" class="codetext"></span>
+        <button onclick="copyNrCode()" class="icobtn">📋 Kopieren</button>
+      </div>
+      <p style="font-size:12px;color:#444;line-height:1.5;margin-bottom:14px">Andere können diesen Code im Tab "Raum-Code" eingeben um beizutreten.</p>
+      <button onclick="closeNewRoom()" class="btn btn-g">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="hidden" style="position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#1f2330;border:1px solid #2a2d35;border-radius:12px;padding:10px 20px;font-size:13px;z-index:99;white-space:nowrap;box-shadow:0 4px 20px #0009;pointer-events:none"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG  ← hier deine Keys eintragen
+// ═══════════════════════════════════════════════
+const SB_URL = 'https://ayacmjwkgxnllyoqkpxd.supabase.co';
+const SB_KEY = 'sb_publishable_TWthMzwhPMzowkaHDoKt-g_J5RLYU7J';
+const sb = supabase.createClient(SB_URL, SB_KEY);
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let ME=null, PROF=null, ROOMS=[], ACTIVE=null, RT=null, NAMES={};
+
+// ═══════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════
+const $=id=>document.getElementById(id);
+const COLS=['#6366f1','#22d3c5','#f97316','#ec4899','#8b5cf6','#10b981','#eab308','#3b82f6'];
+function col(s){let h=0;for(const c of(s||'X'))h=(h*31+c.charCodeAt(0))%997;return COLS[Math.abs(h)%COLS.length];}
+function ini(s){return(s||'?').trim().slice(0,2).toUpperCase();}
+function setAv(el,name){el.style.background=col(name);el.textContent=ini(name);}
+function fmt(ts){return new Date(ts).toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'});}
+
+let _tt;
+function toast(m){
+  const t=$('toast');t.textContent=m;t.classList.remove('hidden');
+  clearTimeout(_tt);_tt=setTimeout(()=>t.classList.add('hidden'),2600);
+}
+
+async function copy(text){
+  try{
+    if(navigator.clipboard){await navigator.clipboard.writeText(text);}
+    else{const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
+    toast('Kopiert ✓');
+  }catch(e){toast('Kopieren fehlgeschlagen – bitte manuell kopieren.');}
+}
+
+function makeCode(){
+  const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let r='';for(let i=0;i<8;i++)r+=c[Math.floor(Math.random()*c.length)];return r;
+}
+
+// ═══════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════
+function showReg(){$('login-view').classList.add('hidden');$('reg-view').classList.remove('hidden');clearAuth();}
+function showLogin(){$('reg-view').classList.add('hidden');$('login-view').classList.remove('hidden');clearAuth();}
+function clearAuth(){$('auth-err').classList.add('hidden');$('auth-ok').classList.add('hidden');}
+function authErr(m){$('auth-err').textContent=m;$('auth-err').classList.remove('hidden');}
+function authOk(m){$('auth-ok').textContent=m;$('auth-ok').classList.remove('hidden');}
+
+async function doLogin(){
+  clearAuth();
+  const email=$('l-email').value.trim(),pass=$('l-pass').value;
+  if(!email||!pass){authErr('Bitte alle Felder ausfüllen.');return;}
+  const{error}=await sb.auth.signInWithPassword({email,password:pass});
+  if(error)authErr(error.message.includes('Invalid')?'E-Mail oder Passwort falsch.':error.message);
+}
+
+async function doRegister(){
+  clearAuth();
+  const name=$('r-name').value.trim(),email=$('r-email').value.trim(),pass=$('r-pass').value;
+  if(!name||!email||!pass){authErr('Bitte alle Felder ausfüllen.');return;}
+  if(pass.length<6){authErr('Passwort min. 6 Zeichen.');return;}
+  const{data,error}=await sb.auth.signUp({email,password:pass,options:{data:{display_name:name}}});
+  if(error){authErr(error.message);return;}
+  if(!data.session){authOk('Konto erstellt! Bitte E-Mail bestätigen, dann einloggen.');showLogin();}
+}
+
+async function doLogout(){
+  if(RT){sb.removeChannel(RT);RT=null;}
+  await sb.auth.signOut();
+}
+
+// ═══════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════
+sb.auth.onAuthStateChange(async(_,session)=>{
+  $('loading').classList.add('hidden');
+  if(session?.user){
+    ME=session.user;
+    $('auth').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('app').style.display='flex';
+    await loadProfile();
+    await loadRooms();
+    initMobile();
+    await checkInvite();
+  } else {
+    ME=null;PROF=null;ROOMS=[];ACTIVE=null;
+    $('app').classList.add('hidden');
+    $('auth').classList.remove('hidden');
+    $('auth').style.display='flex';
+  }
+});
+
+// ═══════════════════════════════════════════════
+// PROFILE
+// ═══════════════════════════════════════════════
+async function loadProfile(){
+  let{data}=await sb.from('profiles').select('*').eq('id',ME.id).maybeSingle();
+  if(!data){
+    const code=makeCode();
+    const name=ME.user_metadata?.display_name||ME.email.split('@')[0];
+    await sb.from('profiles').insert({id:ME.id,display_name:name,private_code:code,is_public:true});
+    const r=await sb.from('profiles').select('*').eq('id',ME.id).maybeSingle();
+    data=r.data;
+  }
+  // Falls private_code leer/null: sofort in DB schreiben und lokal setzen
+  if(!data.private_code||data.private_code.trim()===''){
+    const code=makeCode();
+    await sb.from('profiles').update({private_code:code}).eq('id',ME.id);
+    data.private_code=code;
+  }
+  PROF=data;
+  renderMe();
+}
+
+function renderMe(){
+  if(!PROF)return;
+  $('my-name').textContent=PROF.display_name||'Nutzer';
+  setAv($('my-av'),PROF.display_name||'?');
+  $('set-name').value=PROF.display_name||'';
+  // trim() wichtig: PostgreSQL char(8) padded mit Leerzeichen
+  const code=(PROF.private_code||'').trim()||'--------';
+  $('my-code').textContent=code;
+  $('priv-toggle').checked=!PROF.is_public;
+  $('priv-label').textContent=PROF.is_public?'Profil öffentlich':'Profil privat';
+}
+
+// ═══════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════
+function openSettings(){renderMe();$('settings-modal').classList.add('open');}
+function closeSettings(){$('settings-modal').classList.remove('open');}
+
+async function saveName(){
+  const name=$('set-name').value.trim();
+  if(!name){toast('Name darf nicht leer sein.');return;}
+  const{error}=await sb.from('profiles').update({display_name:name}).eq('id',ME.id);
+  if(error){toast('Fehler: '+error.message);return;}
+  PROF.display_name=name;renderMe();renderRooms();toast('Name gespeichert ✓');
+}
+
+async function savePrivacy(){
+  const isPublic=!$('priv-toggle').checked;
+  const{error}=await sb.from('profiles').update({is_public:isPublic}).eq('id',ME.id);
+  if(error){toast('Fehler: '+error.message);$('priv-toggle').checked=isPublic;return;}
+  PROF.is_public=isPublic;
+  $('priv-label').textContent=isPublic?'Profil öffentlich':'Profil privat';
+  toast(isPublic?'Profil ist jetzt öffentlich ✓':'Profil ist jetzt privat ✓');
+}
+
+function copyMyCode(){copy((PROF?.private_code||'').trim());}
+
+async function regenCode(){
+  const{data,error}=await sb.rpc('regenerate_my_private_code');
+  if(error||!data){toast('Fehler: '+(error?.message||'unbekannt'));return;}
+  PROF.private_code=data;
+  $('my-code').textContent=(data||'').trim();
+  toast('Neuer Code generiert ✓');
+}
+
+// ═══════════════════════════════════════════════
+// TABS & SUCHE
+// ═══════════════════════════════════════════════
+function switchTab(t){
+  ['s','c','r'].forEach(x=>{
+    $('tab-'+x).classList.remove('on');
+    $('panel-'+x).classList.add('hidden');
+  });
+  $('tab-'+t).classList.add('on');
+  $('panel-'+t).classList.remove('hidden');
+  $('search-res').innerHTML='';
+}
+
+let _st;
+function onSearch(v){
+  clearTimeout(_st);
+  if(!v.trim()){$('search-res').innerHTML='';return;}
+  _st=setTimeout(()=>doSearch(v.trim()),300);
+}
+
+async function doSearch(q){
+  const{data}=await sb.from('profiles').select('id,display_name').eq('is_public',true).neq('id',ME.id).ilike('display_name','%'+q+'%').limit(8);
+  renderRes(data||[]);
+}
+
+async function searchByCode(){
+  const code=$('code-inp').value.trim().toUpperCase();
+  if(code.length!==8){toast('Code muss genau 8 Zeichen haben.');return;}
+  const{data,error}=await sb.rpc('find_user_by_private_code',{_code:code});
+  if(error){toast('Fehler: '+error.message);return;}
+  if(!data?.length){toast('Kein Nutzer mit diesem Code gefunden.');$('search-res').innerHTML='';return;}
+  renderRes(data);
+}
+
+async function joinByRoomCode(){
+  const code=$('rcode-inp').value.trim().toUpperCase();
+  if(code.length!==8){toast('Code muss genau 8 Zeichen haben.');return;}
+  const{data,error}=await sb.rpc('join_room_by_code',{_code:code});
+  if(error){toast('Fehler: '+error.message);return;}
+  if(!data){toast('Kein Raum mit diesem Code gefunden.');return;}
+  $('rcode-inp').value='';
+  toast('Raum beigetreten ✓');
+  await loadRooms();
+  openRoom(data);
+}
+
+function renderRes(list){
+  const c=$('search-res');c.innerHTML='';
+  if(!list.length){c.innerHTML='<p style="font-size:12px;color:#444;padding:5px 3px">Keine Ergebnisse.</p>';return;}
+  list.forEach(u=>{
+    const d=document.createElement('div');
+    d.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 7px;border-radius:8px';
+    d.onmouseover=()=>d.style.background='#2a2d35';
+    d.onmouseout=()=>d.style.background='';
+    const av=document.createElement('div');
+    av.style.cssText='width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0';
+    setAv(av,u.display_name);
+    const n=document.createElement('span');
+    n.style.cssText='flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    n.textContent=u.display_name;
+    const b=document.createElement('button');
+    b.style.cssText='background:#6366f1;border:none;border-radius:6px;padding:4px 10px;color:#fff;font-size:11px;font-weight:600;flex-shrink:0';
+    b.textContent='Chat';
+    b.onclick=()=>startDirect(u.id);
+    d.append(av,n,b);
+    c.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// ROOMS
+// ═══════════════════════════════════════════════
+async function loadRooms(){
+  const{data,error}=await sb.from('room_members')
+    .select('room_id,rooms(id,name,is_direct,join_code,created_at)')
+    .eq('user_id',ME.id);
+  if(error){toast('Fehler beim Laden der Räume: '+error.message);console.error('loadRooms error:',error);return;}
+  ROOMS=(data||[]).map(r=>r.rooms).filter(Boolean).sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  // DM-Partnernamen laden
+  const dids=ROOMS.filter(r=>r.is_direct).map(r=>r.id);
+  if(dids.length){
+    const{data:mem}=await sb.from('room_members')
+      .select('room_id,profiles(display_name)')
+      .in('room_id',dids)
+      .neq('user_id',ME.id);
+    (mem||[]).forEach(m=>{
+      const r=ROOMS.find(x=>x.id===m.room_id);
+      if(r&&m.profiles)r._partner=m.profiles.display_name;
+    });
+  }
+  renderRooms();
+}
+
+function roomTitle(r){return r.is_direct?(r._partner||'Direktnachricht'):r.name;}
+
+function renderRooms(){
+  const c=$('room-list');c.innerHTML='';
+  if(!ROOMS.length){
+    c.innerHTML='<p style="font-size:12px;color:#333;padding:8px 10px">Noch keine Chats</p>';
+    return;
+  }
+  ROOMS.forEach(r=>{
+    const title=roomTitle(r);
+    const d=document.createElement('div');
+    d.className='ri'+(ACTIVE===r.id?' active':'');
+
+    const avEl=document.createElement('div');
+    if(r.is_direct){
+      avEl.style.cssText='width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0';
+      setAv(avEl,title);
+    } else {
+      avEl.style.cssText='width:30px;height:30px;border-radius:8px;background:#252830;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;color:#666';
+      avEl.textContent='#';
+    }
+    const n=document.createElement('span');
+    n.style.cssText='font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+    n.textContent=title;
+    d.append(avEl,n);
+    d.onclick=()=>openRoom(r.id);
+    c.appendChild(d);
+  });
+}
+
+async function openRoom(id){
+  ACTIVE=id;
+  renderRooms();
+  const room=ROOMS.find(r=>r.id===id);
+  const title=room?roomTitle(room):'Chat';
+
+  if(room?.is_direct){
+    setAv($('room-av'),title);
+    $('room-av').style.borderRadius='50%';
+    $('room-code-area').classList.add('hidden');
+  } else {
+    $('room-av').style.background='#252830';
+    $('room-av').style.borderRadius='8px';
+    $('room-av').textContent='#';
+    const jc=(room?.join_code||'').trim();
+    if(jc){
+      $('room-code-val').textContent=jc;
+      $('room-code-area').classList.remove('hidden');
+      $('room-code-area').style.display='flex';
+    } else {
+      $('room-code-area').classList.add('hidden');
+    }
+  }
+  $('room-title').textContent=title;
+  $('room-sub').textContent=room?.is_direct?'Direktnachricht':'Gruppenraum';
+  $('composer').classList.remove('hidden');
+  $('empty').style.display='none';
+
+  if(RT){sb.removeChannel(RT);RT=null;}
+  await loadMembers(id);
+  await loadMessages(id);
+  subscribeRoom(id);
+  closeSidebar();
+}
+
+async function loadMembers(rid){
+  const{data}=await sb.from('room_members').select('user_id,profiles(display_name)').eq('room_id',rid);
+  NAMES={};
+  (data||[]).forEach(m=>{NAMES[m.user_id]=m.profiles?.display_name||'Unbekannt';});
+}
+
+async function loadMessages(rid){
+  const{data}=await sb.from('messages').select('*').eq('room_id',rid).order('created_at',{ascending:true}).limit(200);
+  const c=$('msgs');c.innerHTML='';
+  (data||[]).forEach(m=>c.appendChild(bubble(m)));
+  c.scrollTop=c.scrollHeight;
+}
+
+function bubble(m){
+  const own=m.user_id===ME.id;
+  const wrap=document.createElement('div');
+  wrap.className='fadeUp';
+  wrap.style.cssText=`display:flex;flex-direction:column;align-items:${own?'flex-end':'flex-start'}`;
+  if(!own){
+    const nm=document.createElement('p');
+    nm.style.cssText='font-size:11px;color:#444;margin-bottom:3px;padding:0 4px';
+    nm.textContent=NAMES[m.user_id]||'…';
+    wrap.appendChild(nm);
+  }
+  const bub=document.createElement('div');
+  bub.style.cssText=`max-width:75%;padding:9px 14px;border-radius:${own?'16px 16px 4px 16px':'16px 16px 16px 4px'};font-size:14px;line-height:1.5;word-break:break-word;background:${own?'#6366f1':'#1f2330'};border:${own?'none':'1px solid #2a2d35'}`;
+  bub.textContent=m.content;
+  const ts=document.createElement('p');
+  ts.style.cssText='font-size:10px;color:#333;margin-top:3px;padding:0 4px';
+  ts.textContent=fmt(m.created_at);
+  wrap.append(bub,ts);
+  return wrap;
+}
+
+function subscribeRoom(rid){
+  RT=sb.channel('room-'+rid)
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:`room_id=eq.${rid}`},p=>{
+      if(p.new.room_id!==ACTIVE)return;
+      $('msgs').appendChild(bubble(p.new));
+      $('msgs').scrollTop=$('msgs').scrollHeight;
+    })
+    .subscribe();
+}
+
+async function sendMsg(e){
+  e.preventDefault();
+  const inp=$('msg-inp'),txt=inp.value.trim();
+  if(!txt||!ACTIVE)return;
+  inp.value='';
+  const{error}=await sb.from('messages').insert({room_id:ACTIVE,user_id:ME.id,content:txt});
+  if(error)toast('Sendefehler: '+error.message);
+}
+
+// ═══════════════════════════════════════════════
+// DIREKTCHAT
+// ═══════════════════════════════════════════════
+async function startDirect(uid){
+  const{data,error}=await sb.rpc('start_direct_chat',{_other:uid});
+  if(error){toast('Fehler: '+error.message);return;}
+  $('search-inp').value='';$('code-inp').value='';$('search-res').innerHTML='';
+  await loadRooms();
+  openRoom(data);
+}
+
+// ═══════════════════════════════════════════════
+// GRUPPENRAUM
+// ═══════════════════════════════════════════════
+function openNewRoom(){
+  $('nr-name').value='';
+  $('nr-step1').classList.remove('hidden');
+  $('nr-step2').classList.add('hidden');
+  $('newroom-modal').classList.add('open');
+}
+function closeNewRoom(){$('newroom-modal').classList.remove('open');}
+
+async function createRoom(){
+  const name=$('nr-name').value.trim();
+  if(!name){toast('Bitte einen Raumnamen eingeben.');return;}
+  const{data:room,error}=await sb.from('rooms').insert({name,is_direct:false,created_by:ME.id}).select().single();
+  if(error){toast('Fehler beim Erstellen: '+error.message);console.error('createRoom:',error);return;}
+  const{error:e2}=await sb.from('room_members').insert({room_id:room.id,user_id:ME.id});
+  if(e2){toast('Fehler Mitglied: '+e2.message);return;}
+  // join_code vom Trigger oder manuell generieren falls leer
+  let code=(room.join_code||'').trim();
+  if(!code){
+    code=makeCode();
+    await sb.from('rooms').update({join_code:code}).eq('id',room.id);
+  }
+  $('nr-code').textContent=code;
+  $('nr-step1').classList.add('hidden');
+  $('nr-step2').classList.remove('hidden');
+  await loadRooms();
+  openRoom(room.id);
+}
+
+function copyNrCode(){copy($('nr-code').textContent);}
+function copyRoomCode(){copy($('room-code-val').textContent);}
+
+// ═══════════════════════════════════════════════
+// EINLADUNGSLINK (URL-Parameter ?room=...)
+// ═══════════════════════════════════════════════
+async function checkInvite(){
+  const rid=new URLSearchParams(location.search).get('room');
+  if(!rid)return;
+  history.replaceState({},'',location.pathname);
+  const{error}=await sb.from('room_members').insert({room_id:rid,user_id:ME.id});
+  if(error&&error.code!=='23505'){toast('Einladung ungültig.');return;}
+  await loadRooms();
+  openRoom(rid);
+}
+
+// ═══════════════════════════════════════════════
+// MOBILE SIDEBAR
+// ═══════════════════════════════════════════════
+function initMobile(){
+  const mobile=window.innerWidth<640;
+  $('menu-btn').classList.toggle('hidden',!mobile);
+  // Schließen-Button immer im Sidebar sichtbar auf Mobile
+  $('close-sb-btn').classList.toggle('hidden',!mobile);
+  const s=$('sidebar');
+  if(mobile){
+    s.style.position='fixed';
+    s.style.left='0';s.style.top='0';
+    s.style.height='100vh';
+    s.style.zIndex='35';
+    if(!s.style.transform) s.style.transform='translateX(-100%)';
+    s.style.boxShadow='4px 0 24px #0009';
+  } else {
+    s.style.position='';s.style.transform='';s.style.boxShadow='';
+    $('backdrop').style.display='none';
+  }
+}
+// Sofort beim Laden aufrufen, nicht erst nach Login
+initMobile();
+
+function openSidebar(){
+  $('sidebar').style.transform='translateX(0)';
+  $('backdrop').style.display='block';
+}
+function closeSidebar(){
+  if(window.innerWidth<640){
+    $('sidebar').style.transform='translateX(-100%)';
+    $('backdrop').style.display='none';
+  }
+}
+
+window.addEventListener('resize',initMobile);
+</script>
+</body>
+</html>
